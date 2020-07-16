@@ -1,0 +1,118 @@
+---
+title: "JHU Practical Machine Learning Course Project"
+author: "Yanfei Chen"
+date: "15/07/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, cache=TRUE)
+```
+
+## Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, I use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+## Enviornment information
+
+```{r}
+sessionInfo()$R.version["version.string"][[1]][[1]]
+```
+
+## Data preprocessing
+
+First, download the file.
+
+```{r download, cache=TRUE}
+if(!file.exists("projData/pml-training.csv")) {
+      fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+      download.file(fileUrl, destfile = "projData/pml-training.csv")
+}
+if(!file.exists("projData/pml-testing.csv")) {
+      fileUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+      download.file(fileUrl, destfile = "projData/pml-testing.csv")
+}
+training <- read.csv("projData/pml-training.csv")
+testing <- read.csv("projData/pml-testing.csv")
+```
+
+Explore the data. The **training** dataset is much larger than the **testing** dataset.
+
+```{r, cache=TRUE}
+oriDims <- data.frame(rbind(dim(training), dim(testing)))
+colnames(oriDims) <- c("OriginalNumRows", "OriginalNumCols")
+rownames(oriDims) <- c("training", "testing")
+oriDims
+```
+
+Dimensions reduction. First, if the values of a variable are all NAs in **at least one of the datasets**, we remove that variable from both datasets. The first column is just the order of the row. The second column is the name of the enthusiast. This should not be included in the dataset since the type of exercise is general, independent on the exerciser. We can remove it too. After this step, there are 58 variables left.
+
+```{r, cache=TRUE}
+allNaIndicesTesting <- apply(testing, 2, function(x) sum(!is.na(x))) == 0
+allNaIndicesTraining <- apply(training, 2, function(x) sum(!is.na(x))) == 0
+allNaIndices <- allNaIndicesTesting | allNaIndicesTraining
+training <- training[, !allNaIndices]
+testing <- testing[, !allNaIndices]
+training <- training[, -(1:2)]
+testing <- testing[, -(1:2)]
+rbind(dim(training), dim(testing))
+```
+
+## Cross validation
+
+Using cross validation is mandatory in the instructions of the course project. Besides, the training dataset is big enough to implement cross validation.  
+In this project, I use 4 algorithms:  
+1. Decision Tree (Rpart)  
+2. Random Forest (Rf)  
+3. Boosting (Gbm)  
+4. Linear Discriminate Analysis (Lda)  
+
+```{r message=FALSE, warning=FALSE, cache=TRUE}
+training$classe <- as.factor(training$classe)
+library(caret)
+set.seed(314)
+myControl <- trainControl(method = "cv", number = 3)
+modelRpart <- train(classe ~ ., data = training, preProcess = "pca",
+                                     method = "rpart", trControl = myControl)
+```
+
+```{r message=FALSE, warning=FALSE, cache=TRUE}
+set.seed(314)
+modelRf <- train(classe ~ ., data = training, preProcess = "pca",
+                                  method = "rf", trControl = myControl)
+```
+
+```{r message=FALSE, warning=FALSE, cache=TRUE, results='hide'}
+set.seed(314)
+modelGbm <- train(classe ~ ., data = training, preProcess = "pca",
+                                   method = "gbm", trControl = myControl)
+```
+
+```{r message=FALSE, warning=FALSE, cache=TRUE}
+set.seed(314)
+modelLda <- train(classe ~ ., data = training, preProcess = "pca",
+                                   method = "lda", trControl = myControl)
+```
+
+## Model selection
+
+Let's compare the accuracies of these models.
+
+```{r}
+accModels <- sapply(list(modelRpart, modelRf, modelGbm, modelLda), 
+                    function(x) colMeans(x$results["Accuracy"]))
+names(accModels) <- c("Rpart", "Rf", "Gbm", "Lda")
+sort(accModels)
+```
+
+Compared to other models, **Rf** has a much better accuracy. Thus, we use the **Rf** model.
+
+## Prediction
+
+Let's predict the types of exercise, i.e. **classe**, in the **testing** dataset.
+```{r}
+predict(modelRf, testing)
+```
+
+Regarding the **out-of-sample-error**, it is larger than the accuracy of model **Rf**, which equals `1 - colMeans(modelRf$results["Accuracy"])` = 0.02362297. The reason for this is that the out-of-sample-error is always larger than the sample error.  
+In the **Course Project Prediction Quiz**, I answered the quesions using the above predictions and I got 95% Grade. **This is cool!**
